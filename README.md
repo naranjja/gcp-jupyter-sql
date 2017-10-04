@@ -60,6 +60,8 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO [USER_NAME];
 ### (Optional) Upload CSV
 The easiest way to upload a CSV is to use Python. Connect to the Cloud SQL instance using SQLAlchemy, load the CSV using Pandas, and insert it to some table.
 
+![img](img/upload.png)
+
 Import both Pandas and SQLAlchemy:
 ```python
 import pandas as pd
@@ -106,6 +108,9 @@ See [`example/upload-csv.py`](example/upload-csv.py)
 
 ## Setup Jupyter Notebook
 ### Using Dataproc (clusterized processing)
+
+![img](img/dataproc.png)
+
 Run some command prompt, or the included Google Cloud SDK Shell and create a Dataproc cluster (2 workers) with Jupyter base image:
 ```
 gcloud dataproc clusters create [CLUSTER_NAME] --master-machine-type n1-standard-2 --worker-machine-type n1-standard-2 --initialization-actions gs://dataproc-initialization-actions/jupyter/jupyter.sh
@@ -117,6 +122,9 @@ gcloud dataproc clusters list
 You will see a master instance (`[CLUSTER_NAME]-m`) and 2 workers (`[CLUSTER_NAME]-w-0` and `[CLUSTER_NAME]-w-1`). Take note of the master instance's IP.
 
 ### Using Compute Engine (normal processing)
+
+![img](img/compute.png)
+
 Run some command prompt, or the included Google Cloud SDK Shell and create a Debian 9 Compute Engine instance:
 ```
 gcloud compute instances create [INSTANCE_NAME] --image-family debian-9 --image-project debian-cloud
@@ -162,6 +170,9 @@ Check if installation is successful by running `ls` and checking that the `anaco
 Check if `conda` registered to path by running `conda`. If not recognized, add to path manually using `source ~/.bashrc`.
 
 ## Setup SSH tunnel to instance
+
+![img](img/tunnel.png)
+
 Go to the [External IP Addresses list page](https://console.cloud.google.com/networking/addresses/list) and make the instance's IP static. If you used Dataproc, the instance's IP you want to make public is the master instance (`[CLUSTER_NAME]-m`). Take note of this IP.
 
 Run some command prompt, or the included Google Cloud SDK Shell and connect to the instance using SSH. If you used Dataproc, the `[INSTANCE_NAME]` will refer to the master instance (`[CLUSTER_NAME]-m`):
