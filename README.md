@@ -33,7 +33,7 @@ Run some command prompt, or the included Google Cloud SDK Shell and create a Clo
 ```
 gcloud sql instances create [INSTANCE_NAME] --database-version POSTGRES_9_6
 ```
-Check and take note of the newly created instance's IP:
+Check and take note of the newly created instance's external IP:
 ```
 gcloud sql instances list
 ```
@@ -127,32 +127,21 @@ For this guide, we will use 1 master instance and 2 workers (slaves):
   <img src="img/dataproc.png" width="70%">
 </p>
 
-You need to create an initialization script with the following content:
-
-```sh
-#!/bin/bash
-apt-get -y install python3
-echo "export PYSPARK_PYTHON=python3" | tee -a  /etc/profile.d/spark_config.sh  /etc/*bashrc /usr/lib/spark/conf/spark-env.sh
-echo "Adding PYTHONHASHSEED=0 to profiles and spark-defaults.conf..."
-echo "export PYTHONHASHSEED=0" | tee -a /etc/profile.d/spark_config.sh /etc/*bashrc /usr/lib/spark/conf/spark-env.sh
-echo "spark.executorEnv.PYTHONHASHSEED=0" >> /etc/spark/conf/spark-defaults.conf
+Run some command prompt, or the included Google Cloud SDK Shell and create the Dataproc cluster. Here we have specified the types of machines (i.e. `n1-standard-2`) but you can use different ones:
+```
+gcloud dataproc clusters create example-cluster --master-machine-type n1-standard-2 --worker-machine-type n1-standard-2 --initialization-actions gs://srcd-dataproc/jupyter.sh
 ```
 
-See [`init-python-3.sh`](example/init-python-3.sh)
-
-Then, run some command prompt, or the included Google Cloud SDK Shell, navigate to where the initialization script is stored, and create the Dataproc cluster.
-
-Here we have specified the types of machines (i.e. `n1-standard-2`) but you can use different ones:
-```
-gcloud compute instances create [CLUSTER_NAME] --master-machine-type n1-standard-2 --worker-machine-type n1-standard-2 --metadata-from-file startup-script=[INIT_SCRIPT]
-```
-> NOTE: This initialization script provides both Python 3 as well as PySpark.
-
-Check the newly created instances:
+Check the newly created cluster:
 ```
 gcloud dataproc clusters list
 ```
-You will see a master instance (`[CLUSTER_NAME]-m`) and 2 workers (`[CLUSTER_NAME]-w-0` and `[CLUSTER_NAME]-w-1`). Take note of the master instance's IP.
+
+Check the newly created instances:
+```
+gcloud compute instances list
+```
+You will see a master instance (`[CLUSTER_NAME]-m`) and 2 workers (`[CLUSTER_NAME]-w-0` and `[CLUSTER_NAME]-w-1`).
 
 ### Using Compute Engine (normal processing)
 A different, simpler, quicker, and cheaper approach is to use a single Compute Engine instance. To do this, run some command prompt, or the included Google Cloud SDK Shell and create an instance (e.g. Debian 9):
@@ -160,7 +149,7 @@ A different, simpler, quicker, and cheaper approach is to use a single Compute E
 gcloud compute instances create [INSTANCE_NAME] --image-family debian-9 --image-project debian-cloud
 ```
 
-Check the newly created instance and take note of the instance's IP:
+Check the newly created instance:
 ```
 gcloud compute instances list
 ```
@@ -179,6 +168,8 @@ Run some command prompt, or the included Google Cloud SDK Shell and connect to t
 ```
 gcloud compute ssh --zone [ZONE] [INSTANCE_NAME]
 ```
+> NOTE: Upon first connection, a message about the host's key might show up. Click on `Yes` to add the key to the local registry when prompted.
+
 Once authenticated, proceed downloading Anaconda3:
 ```
 sudo wget https://repo.continuum.io/archive/Anaconda3-5.0.0.1-Linux-x86_64.sh
@@ -208,12 +199,14 @@ The tunnel is what will allow you to run Jupyter Notebooks on the cloud, from yo
 ![img](img/tunnel.png)
 
 ### Exposing the Compute Engine instance's port
-Go to the [External IP Addresses list page](https://console.cloud.google.com/networking/addresses/list) and make the Compute Engine instance's IP static. If you used Dataproc, the instance's IP you want to make public is the master instance (`[CLUSTER_NAME]-m`).
+Go to the [External IP Addresses list page](https://console.cloud.google.com/networking/addresses/list) and make the Compute Engine instance's IP static. If you used Dataproc, the instance's IP you want to make public is the master instance (`[CLUSTER_NAME]-m`). Take note of the Compute Engine instance's new static IP (external address).
 
 Run some command prompt, or the included Google Cloud SDK Shell and connect to the instance using SSH. If you used Dataproc, the `[INSTANCE_NAME]` will refer to the master instance (`[CLUSTER_NAME]-m`):
 ```
 gcloud compute ssh --zone [ZONE] [INSTANCE_NAME]
 ```
+> NOTE: Upon first connection, a message about the host's key might show up. Click on `Yes` to add the key to the local registry when prompted.
+
 Once authenticated, proceed to running the Jupyter Notebook Server and exposing port `8888`:
 ```
 jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser
