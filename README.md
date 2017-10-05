@@ -1,7 +1,7 @@
 # gcp-jupyter-sql
 It can be *very* useful to outsource processing to the cloud as it allows for easy horizontal and vertical scaling. Google Cloud Platform has all the necessary infrastructure to run Jupyter Notebooks in the cloud, from creating a clusterized server configuration of notebooks, to reading and writing data to a database based on Cloud SQL.
 
-The following are instructions to run a (Python 3, Anaconda3) Jupyter Notebook using Google Cloud Platform's Dataproc (for clusterized processing) or Compute Engine (for normal processing), as well as Cloud SQL for storing data. A script is provided for uploading CSV data to Cloud SQL, as well as an example of how to query Cloud SQL into a Pandas DataFrame.
+The following are instructions to run a (Python 3, Anaconda3) Jupyter Notebook Server using Google Cloud Platform's Dataproc (for clusterized processing) or Compute Engine (for normal processing), as well as Cloud SQL for storing data. A script is provided for uploading CSV data to Cloud SQL, as well as an example of how to query Cloud SQL into a Pandas DataFrame.
 
 ![img](img/infrastructure.png)
 
@@ -214,7 +214,7 @@ Run some command prompt, or the included Google Cloud SDK Shell and connect to t
 ```
 gcloud compute ssh --zone [ZONE] [INSTANCE_NAME]
 ```
-Once authenticated, proceed to running the Jupyter Notebook and exposing port `8888`:
+Once authenticated, proceed to running the Jupyter Notebook Server and exposing port `8888`:
 ```
 jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser
 ```
@@ -233,7 +233,7 @@ gcloud compute ssh --zone [ZONE] --ssh-flag="-L" --ssh-flag="2222:localhost:8888
 ```
 
 ## Connect to the Jupyter Notebook Server
-Now that there is an open connection that tunnels local port `2222` to remote port `8888`, where there is a Jupyter notebook running, you can simply open some browser (e.g. Google Chrome) and visit `localhost:2222`.
+Now that there is an open connection that tunnels local port `2222` to remote port `8888`, where there is a Jupyter Notebook Server running, you can simply open some browser (e.g. Google Chrome) and visit `localhost:2222`.
 
 Once inside, it will ask for the token. Provide the token that was shown in the output when running the server, and that's it.
 
@@ -242,7 +242,7 @@ Once inside, it will ask for the token. Provide the token that was shown in the 
 
 To do this, simply go to the [Cloud SQL instance's page](https://console.cloud.google.com/sql/instances), select your instance, and go to **Authorization** > **Add network** and enter the instance's IP.
 
-Once the instance has permission, inside the Jupyter notebook, import both Pandas and SQLAlchemy:
+Once the instance has permission, inside a Jupyter Notebook, import both Pandas and SQLAlchemy:
 ```python
 import pandas as pd
 from sqlalchemy import create_engine
