@@ -1,5 +1,5 @@
 # gcp-jupyter-sql
-It can be *very* useful to outsource processing to the cloud as it allows for easy horizontal and vertical scaling. Google Cloud Platform has all the necessary infrastructure to run Jupyter Notebooks in the cloud, from creating a clusterized configuration of notebooks, to reading and writing data to a database.
+It can be *very* useful to outsource processing to the cloud as it allows for easy horizontal and vertical scaling. Google Cloud Platform has all the necessary infrastructure to run Jupyter Notebooks in the cloud, from creating a clusterized server configuration of notebooks, to reading and writing data to a database based on Cloud SQL.
 
 The following are instructions to run a (Python 3, Anaconda3) Jupyter Notebook using Google Cloud Platform's Dataproc (for clusterized processing) or Compute Engine (for normal processing), as well as Cloud SQL for storing data. A script is provided for uploading CSV data to Cloud SQL, as well as an example of how to query Cloud SQL into a Pandas DataFrame.
 
@@ -9,10 +9,11 @@ The steps are as follows:
 - [Setup project](#setup-project)
 - [Setup Cloud SQL](#setup-cloud-sql)
   - [(Optional) Upload CSV](#optional-upload-csv)
-- [Setup Jupyter Notebook](#setup-jupyter-notebook)
+  - [(Optional) Create separate users](#optional-create-separate-users)
+- [Setup Jupyter Notebook Server](#setup-jupyter-notebook-server)
   - [(Optional) Install Anaconda3](#optional-install-anaconda3)
 - [Setup SSH tunnel to instance](#setup-ssh-tunnel-to-instance)
-- [Connect to Jupyter Notebook](#connect-to-jupyter-notebook)
+- [Connect to the Jupyter Notebook Server](#connect-to-the-jupyter-notebook-server)
   - [(Optional) Query Cloud SQL to Pandas DataFrame](#optional-query-cloud-sql-to-pandas-dataframe)
 
 ## Setup project
@@ -25,6 +26,7 @@ Set this project as the current, working project:
 ```
 gcloud config set project [PROJECT_ID]
 ```
+> NOTE: This will remove the need to specify the project on every `gcloud` call.
 
 ## Setup Cloud SQL
 Run some command prompt, or the included Google Cloud SDK Shell and create a Cloud SQL PostgresQL instance:
@@ -35,15 +37,17 @@ Check and take note of the newly created instance's IP:
 ```
 gcloud sql instances list
 ```
-Add some user (where `HOST` refers to the instance's IP):
+
+Go to the [Cloud SQL instance's page](https://console.cloud.google.com/sql/instances), select your instance, and go to **Databases** > **Create database** and create one.
+
+In order to be able to connect to the instance locally, it is necessary to whitelist the local IP. [Search for your IP on Google](https://www.google.com/search?q=ip). This is the easiest way to get your local, external IP. Then, go to **Authorization** > **Add network** and enter this IP.
+
+### (Optional) Create separate users
+By default, the `postgres` user will have all required privileges, but you might want to create separate users. To add a user, use the following command (where `HOST` refers to the instance's IP):
 ```
 gcloud sql users create [USER_NAME] [HOST] --instance [INSTANCE_NAME] --password [PASSWORD]
 ```
-Go to the [Cloud SQL instance's page](https://console.cloud.google.com/sql/instances), select your instance, and go to **Databases** > **Create database** and create one.
-
-In order to be able to connect to the instance locally, it is necessary to whitelist the local IP. Go to [Google](http://www.google.com) and search for "IP". This will return your local, external IP. Go to **Authorization** > **Add network** and enter this IP.
-
-Finally, the newly created user will have limited privileges. In order to give it all privileges on all tables, you need to go to **Overview** > **Connect to this instance** > **Connect using Cloud Shell**. The Cloud Shell will open with a default connection command available. Press enter to get access to the PSQL client.
+The newly created user will have limited privileges. To grant additional privileges, you need to go to **Overview** > **Connect to this instance** > **Connect using Cloud Shell**. The Cloud Shell will open with a default connection command available. Press enter to get access to the PSQL client.
 
 Once inside, switch to the database you want:
 
@@ -51,7 +55,7 @@ Once inside, switch to the database you want:
 \c [DATABASE_NAME]
 ```
 
-Then grant privileges to the desired user on all tables:
+Grant the privileges you want to the desired user. For example, all privileges on all tables:
 
 ```sql
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO [USER_NAME];
@@ -60,7 +64,9 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO [USER_NAME];
 ### (Optional) Upload CSV
 The easiest way to upload a CSV is to use Python. Connect to the Cloud SQL instance using SQLAlchemy, load the CSV using Pandas, and insert it to some table.
 
-![img](img/upload.png)
+<p align="center">
+  <img src="img/upload.png" width="70%">
+</p>
 
 Import both Pandas and SQLAlchemy:
 ```python
@@ -85,12 +91,12 @@ Load the CSV using Pandas:
 df = pd.read_csv('[CSV_FILE_NAME].csv')  # this returns a DataFrame
 ```
 
-NOTE: Make sure that the column names are valid (no spaces, no illegal characters, etc.). A useful trick is to map columns that satisfy a known, problematic condition. For example, replace the `%` sign with the string `percent`:
+> NOTE: Make sure that the column names are valid (no spaces, no illegal characters, etc.). A useful trick is to map columns that satisfy a known, problematic condition. For example, replace the `%` sign with the string `percent`:
 
 ```python
-old_columns = list(df.columns)
-new_columns = [_.replace('%', 'percent') for _ in old_columns]
-df = df.rename(columns=dict(zip(old_columns, new_columns)))
+old_columns = list(df.columns)  # create list of columns
+new_columns = [_.replace('%', 'percent') for _ in old_columns]  # list comprehension with replace
+df = df.rename(columns=dict(zip(old_columns, new_columns)))  # zip as {old_column: new_column}
 ```
 
 If the CSV has an empty initial column for its index, make sure to drop it because it will get renamed to `Unnamed: 0` which contains a space:
@@ -99,6 +105,8 @@ If the CSV has an empty initial column for its index, make sure to drop it becau
 df = df.drop('Unnamed: 0', axis=1)
 ```
 
+> NOTE: Avoid using `DataFrame.drop(inplace=True)` since it is buggy in some versions of Pandas.
+
 Finally, insert DataFrame to some table:
 ```python
 df.to_sql('[TABLE_NAME]', con=engine, if_exists='replace')
@@ -106,15 +114,42 @@ df.to_sql('[TABLE_NAME]', con=engine, if_exists='replace')
 
 See [`example/upload-csv.py`](example/upload-csv.py)
 
-## Setup Jupyter Notebook
+## Setup Jupyter Notebook Server
+There are two approaches, one more complex, and one simpler. They both have their respective pros and cons, and will depend on the use case. The most practical approach is to think about using clusterized processing when the task itself is complex and requires lots of resources to process, and normal processing when the task is simpler.
+
+For this guide, you must choose between one or the other.
 ### Using Dataproc (clusterized processing)
+The Dataproc service allows to create a set of Compute Engine instances with master-slave relationships (in terms of processing). This is the most efficient way to distribute the workload of Jupyter Notebooks.
 
-![img](img/dataproc.png)
+For this guide, we will use 1 master instance and 2 workers (slaves):
 
-Run some command prompt, or the included Google Cloud SDK Shell and create a Dataproc cluster (2 workers) with Jupyter base image:
+<p align="center">
+  <img src="img/dataproc.png" width="70%">
+</p>
+
+You need to create an initialization script with the following content:
+
 ```
-gcloud dataproc clusters create [CLUSTER_NAME] --master-machine-type n1-standard-2 --worker-machine-type n1-standard-2 --initialization-actions gs://dataproc-initialization-actions/jupyter/jupyter.sh
+#!/bin/bash
+# from https://gist.githubusercontent.com/nehalecky/9258c01fb2077f51545a/raw/789f08141dc681cf1ad5da05455c2cd01d1649e8/install-py3-dataproc.sh
+
+apt-get -y install python3
+echo "export PYSPARK_PYTHON=python3" | tee -a  /etc/profile.d/spark_config.sh  /etc/*bashrc /usr/lib/spark/conf/spark-env.sh
+echo "Adding PYTHONHASHSEED=0 to profiles and spark-defaults.conf..."
+echo "export PYTHONHASHSEED=0" | tee -a /etc/profile.d/spark_config.sh /etc/*bashrc /usr/lib/spark/conf/spark-env.sh
+echo "spark.executorEnv.PYTHONHASHSEED=0" >> /etc/spark/conf/spark-defaults.conf
 ```
+
+See [`init-python-3.sh`](example/init-python-3.sh)
+
+Then, run some command prompt, or the included Google Cloud SDK Shell, navigate to where the initialization script is stored, and create the Dataproc cluster.
+
+Here we have specified the types of machines (i.e. `n1-standard-2`) but you can use different ones:
+```
+gcloud compute instances create [CLUSTER_NAME] --master-machine-type n1-standard-2 --worker-machine-type n1-standard-2 --metadata-from-file startup-script=[INIT_SCRIPT]
+```
+> NOTE: This initialization script provides both Python 3 as well as PySpark.
+
 Check the newly created instances:
 ```
 gcloud dataproc clusters list
@@ -122,28 +157,24 @@ gcloud dataproc clusters list
 You will see a master instance (`[CLUSTER_NAME]-m`) and 2 workers (`[CLUSTER_NAME]-w-0` and `[CLUSTER_NAME]-w-1`). Take note of the master instance's IP.
 
 ### Using Compute Engine (normal processing)
-
-![img](img/compute.png)
-
-Run some command prompt, or the included Google Cloud SDK Shell and create a Debian 9 Compute Engine instance:
+A different, simpler, quicker, and cheaper approach is to use a single Compute Engine instance. To do this, run some command prompt, or the included Google Cloud SDK Shell and create an instance (e.g. Debian 9):
 ```
 gcloud compute instances create [INSTANCE_NAME] --image-family debian-9 --image-project debian-cloud
 ```
 
-Check the newly created instance:
+Check the newly created instance and take note of the instance's IP:
 ```
 gcloud compute instances list
 ```
-Take note of the instance's IP.
 
 Go to the [Compute Engine instance's page](https://console.cloud.google.com/compute/instances), select your instance, scroll down to the **Firewalls** section and tick both **Allow HTTP traffic** and **Allow HTTPS traffic**.
 
-Go to the **Remote access** section and click on **SSH**. Once the console loads up, install Jupyter:
+> NOTE: If you plan on using Anaconda3, you may skip this next part as Jupyter already comes pre-installed.
+
+Go to the **Remote access** section and click on **SSH**. Once the console loads up, install Jupyter.
 ```
 pip install jupyter
 ```
-
-NOTE: If you plan on using Anaconda3, this step is not necessary since Anaconda3 comes with Jupyter.
 
 ### (Optional) Install Anaconda3
 Run some command prompt, or the included Google Cloud SDK Shell and connect to the instance using SSH. If you used Dataproc, the `[INSTANCE_NAME]` will refer to the master instance (`[CLUSTER_NAME]-m`):
@@ -152,34 +183,40 @@ gcloud compute ssh --zone [ZONE] [INSTANCE_NAME]
 ```
 Once authenticated, proceed downloading Anaconda3:
 ```
-sudo apt-get install bzip2
 sudo wget https://repo.continuum.io/archive/Anaconda3-5.0.0.1-Linux-x86_64.sh
 ```
 
-NOTE: You can always visit the [Anaconda archive](https://repo.continuum.io/archive/) to get any version's URL.
+> NOTE: You can always visit the [Anaconda archive](https://repo.continuum.io/archive/) to get any version's URL.
 
-Proceed to install Anaconda3:
+Proceed to install Anaconda3 (install `bzip2` to be able to decompress some Anaconda3 installation files):
 ```
+sudo apt-get install bzip2
 bash Anaconda3-5.0.0.1-Linux-x86_64.sh
 ```
 
-It will ask if you want to add Anaconda3 to the PATH variable. Say `yes` to this step.
+> NOTE: Do not run `sudo bash` for the installation, as it will be installed elsewhere.
 
-Check if installation is successful by running `ls` and checking that the `anaconda3/` folder is present at position.
+> NOTE: During the installation, you will be asked if you want to add Anaconda3 to the PATH variable (albeit in very quirky wording). Type `yes` to this step when prompted.
 
-Check if `conda` registered to path by running `conda`. If not recognized, add to path manually using `source ~/.bashrc`.
+Check if installation is successful by running the `ls` command and checking that the `anaconda3` folder is present. Then, check if `conda` registered to path by running the `conda` command. If not recognized, add to path manually:
+
+```
+source ~/.bashrc
+```
 
 ## Setup SSH tunnel to instance
+The tunnel is what will allow you to run Jupyter Notebooks on the cloud, from your computer.
 
 ![img](img/tunnel.png)
 
-Go to the [External IP Addresses list page](https://console.cloud.google.com/networking/addresses/list) and make the instance's IP static. If you used Dataproc, the instance's IP you want to make public is the master instance (`[CLUSTER_NAME]-m`). Take note of this IP.
+### Exposing the Compute Engine instance's port
+Go to the [External IP Addresses list page](https://console.cloud.google.com/networking/addresses/list) and make the Compute Engine instance's IP static. If you used Dataproc, the instance's IP you want to make public is the master instance (`[CLUSTER_NAME]-m`).
 
 Run some command prompt, or the included Google Cloud SDK Shell and connect to the instance using SSH. If you used Dataproc, the `[INSTANCE_NAME]` will refer to the master instance (`[CLUSTER_NAME]-m`):
 ```
 gcloud compute ssh --zone [ZONE] [INSTANCE_NAME]
 ```
-Once authenticated, proceed to running the Jupyter Notebook and exposing port 8888:
+Once authenticated, proceed to running the Jupyter Notebook and exposing port `8888`:
 ```
 jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser
 ```
@@ -189,15 +226,16 @@ Once the server is running, it will generate an output similar to the following:
 ```
 Take note of the value for the token parameter (e.g. `6650c754c8cddf2dd8cee7923a116ad021dfec8fe085c99a`)
 
-Thus far, you have Jupyter running on a Google Cloud instance, on port 8888. Now we need to tunnel this port to another port, we will use local port 2222 to interface with remote port 8888.
+### Creating the tunnel
+Thus far, you have Jupyter running on a Google Cloud instance, on port `8888`. Now, we need to tunnel this port to another port, we will use local port `2222` to interface with remote port `8888`.
 
 Run a new command prompt, or the included Google Cloud SDK Shell and connect to the instance again using SSH. This time, passing a flag to create the tunnel:
 ```
 gcloud compute ssh --zone [ZONE] --ssh-flag="-L" --ssh-flag="2222:localhost:8888" [INSTANCE_NAME]
 ```
 
-## Connect to Jupyter Notebook
-Now that there is an open connection that tunnels local port 2222 to remote port 8888, where there is a Jupyter notebook running, you can simply open some browser (e.g. Google Chrome) and visit `localhost:2222`.
+## Connect to the Jupyter Notebook Server
+Now that there is an open connection that tunnels local port `2222` to remote port `8888`, where there is a Jupyter notebook running, you can simply open some browser (e.g. Google Chrome) and visit `localhost:2222`.
 
 Once inside, it will ask for the token. Provide the token that was shown in the output when running the server, and that's it.
 
