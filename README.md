@@ -3,6 +3,8 @@ It can be *very* useful to outsource processing to the cloud as it allows for ea
 
 The following are instructions to run a (Python 3, Anaconda3) Jupyter Notebook Server using Google Cloud Platform's Dataproc (for clusterized processing) or Compute Engine (for normal processing), as well as Cloud SQL for storing data. A script is provided for uploading CSV data to Cloud SQL, as well as an example of how to query Cloud SQL into a Pandas DataFrame.
 
+> **IMPORTANT NOTE**: As an addendum to these instructions, sometimes the typical workflow involves large datasets that are not being modified constantly. For this use case, Google BigQuery is a much faster alternative to Cloud SQL. [A new section has been added](#using-bigquery) with instructions to setup a BigQuery dataset, and how to query it from Jupyter.
+
 ![img](img/infrastructure.png)
 
 The steps are as follows:
@@ -29,14 +31,13 @@ gcloud config set project [PROJECT_ID]
 > NOTE: This will remove the need to specify the project on every `gcloud` call.
 
 ## Setup Cloud SQL
-Run some command prompt, or the included Google Cloud SDK Shell and create a Cloud SQL PostgresQL instance:
+Run some command prompt, or the included Google Cloud SDK Shell and create a Cloud SQL PostgresQL instance using the following command (where `CORES` refers to the number of virtual CPUs and `MEMORY` to the allocated virtual memory, in MB):
 ```
-gcloud sql instances create [INSTANCE_NAME] --database-version POSTGRES_9_6
+gcloud beta sql instances create [INSTANCE_NAME] --tier db-custom-[CORES]-[MEMORY] --database-version POSTGRES_9_6
 ```
-Check and take note of the newly created instance's external IP:
-```
-gcloud sql instances list
-```
+> NOTE: The number of cores must be even, memory must be between 1024 MB and 6,656 MB per core, and the total memory needs to be a multiple of 256.
+
+The console output will show a field called `ADDRESS`. This is the instance's external IP. Take note of this value.
 
 Go to the [Cloud SQL instance's page](https://console.cloud.google.com/sql/instances), select your instance, and go to **Databases** > **Create database** and create one.
 
@@ -91,18 +92,13 @@ Load the CSV using Pandas:
 df = pd.read_csv('[CSV_FILE_NAME].csv')  # this returns a DataFrame
 ```
 
-> NOTE: Make sure that the column names are valid (no spaces, no illegal characters, etc.). A useful trick is to map columns that satisfy a known, problematic condition. For example, replace the `%` sign with the string `percent`:
+> NOTE: Make sure that the column names are valid (no spaces, no illegal characters, etc.). A useful trick is replace any character different from a letter, number or underscore to an underscore using regular expressions:
 
 ```python
+from re import sub
 old_columns = list(df.columns)  # create list of columns
-new_columns = [_.replace('%', 'percent') for _ in old_columns]  # list comprehension with replace
+new_columns = [sub('[^A-Za-z0-9_]+', '_', _) for _ in old_columns]  # list comprehension with regex sub
 df = df.rename(columns=dict(zip(old_columns, new_columns)))  # zip as {old_column: new_column}
-```
-
-If the CSV has an empty initial column for its index, make sure to drop it because it will get renamed to `Unnamed: 0` which contains a space:
-
-```python
-df = df.drop('Unnamed: 0', axis=1)
 ```
 
 > NOTE: Avoid using `DataFrame.drop(inplace=True)` since it is buggy in some versions of Pandas.
@@ -129,7 +125,7 @@ For this guide, we will use 1 master instance and 2 workers (slaves):
 
 Run some command prompt, or the included Google Cloud SDK Shell and create the Dataproc cluster. Here we have specified the types of machines (i.e. `n1-standard-2`) but you can use different ones:
 ```
-gcloud dataproc clusters create example-cluster --master-machine-type n1-standard-2 --worker-machine-type n1-standard-2 --initialization-actions gs://srcd-dataproc/jupyter.sh
+gcloud dataproc clusters create [CLUSTER_NAME] --master-machine-type n1-standard-2 --worker-machine-type n1-standard-2 --initialization-actions gs://srcd-dataproc/jupyter.sh
 ```
 
 Check the newly created cluster:
@@ -166,7 +162,7 @@ pip install jupyter
 ### (Optional) Install Anaconda3
 Run some command prompt, or the included Google Cloud SDK Shell and connect to the instance using SSH. If you used Dataproc, the `[INSTANCE_NAME]` will refer to the master instance (`[CLUSTER_NAME]-m`):
 ```
-gcloud compute ssh --zone [ZONE] [INSTANCE_NAME]
+gcloud compute ssh [INSTANCE_NAME] --zone [ZONE]
 ```
 > NOTE: Upon first connection, a message about the host's key might show up. Click on `Yes` to add the key to the local registry when prompted.
 
@@ -203,7 +199,7 @@ Go to the [External IP Addresses list page](https://console.cloud.google.com/net
 
 Run some command prompt, or the included Google Cloud SDK Shell and connect to the instance using SSH. If you used Dataproc, the `[INSTANCE_NAME]` will refer to the master instance (`[CLUSTER_NAME]-m`):
 ```
-gcloud compute ssh --zone [ZONE] [INSTANCE_NAME]
+gcloud compute ssh [INSTANCE_NAME] --zone [ZONE]
 ```
 > NOTE: Upon first connection, a message about the host's key might show up. Click on `Yes` to add the key to the local registry when prompted.
 
@@ -222,7 +218,7 @@ Thus far, you have Jupyter running on a Google Cloud instance, on port `8888`. N
 
 Run a new command prompt, or the included Google Cloud SDK Shell and connect to the instance again using SSH. This time, passing a flag to create the tunnel:
 ```
-gcloud compute ssh --zone [ZONE] --ssh-flag="-L" --ssh-flag="2222:localhost:8888" [INSTANCE_NAME]
+gcloud compute ssh [INSTANCE_NAME] --zone [ZONE] --ssh-flag="-L" --ssh-flag="2222:localhost:8888"
 ```
 
 ## Connect to the Jupyter Notebook Server
@@ -272,3 +268,65 @@ df = pd.read_sql(query, con=engine)
 ```
 
 See [`example/query-sql-pandas.py`](example/query-sql-pandas.py)
+
+## Using BigQuery
+Setting up BigQuery is much easier than Cloud SQL because it does not require to create an instance. Simply run a new command prompt, or the included Google Cloud SDK Shell and create a dataset:
+
+```
+bq mk [DATASET_NAME]
+```
+
+### Uploading some CSV
+To upload a CSV, it is only required to call the `load` command and specify the insertion details within the folder that contains the CSV file:
+
+```
+bq load --autodetect [DATASET_NAME].[TABLE_NAME] [CSV_FILE_NAME]
+```
+> NOTE: If the CSV is too large and the connection must be kept alive for too long, it's better to use Google Cloud Storage for staging and then load the CSV from there. See the next section for details.
+
+### (Optional) Using Cloud Storage as intermediary
+#### Creating bucket
+Run a new command prompt, or the included Google Cloud SDK Shell, and create the bucket which will store the CSV file(s):
+```
+gsutil mb gs://[BUCKET_NAME]/
+```
+
+#### Uploading CSV to Cloud Storage
+Navigate to the folder that contains the CSV file, and execute the following command (where `BUCKET_NAME` refers to the name of the bucket which will receive the file):
+```
+gsutil cp [CSV_FILE_NAME] gs://[BUCKET_NAME]/
+```
+
+#### Loading CSV from Cloud Storage to BigQuery
+Run the following command to load the CSV from the bucket to BigQuery:
+```
+bq load --autodetect [DATASET_NAME].[TABLE_NAME] gs://[BUCKET_NAME]/[CSV_FILE_NAME]
+```
+
+### Querying BigQuery from Jupyter
+To query BigQuery from Jupyter, you can use Pandas. However, there is an extra package that needs to be installed for Pandas to interface with BigQuery called `pandas-gbq`. Install this first:
+```
+pip install pandas-gbq
+```
+
+Then, import Pandas:
+```python
+import pandas as pd
+```
+
+Create some query string (using the proper `FROM` syntax, surrounded by brackets `[]`), for example:
+```python
+query = """
+    SELECT *
+    FROM [[PROJECT_ID]:[DATASET_NAME].[TABLE_NAME]]
+"""
+```
+> NOTE: The project ID specified in the `FROM` refers to the project which contains the dataset.
+
+Then, simply run the query using the SDK authentication (the cell output will send you a link for you to copy and paste some ID) and an accessible project ID:
+```python
+df = pd.read_gbq(query, project_id='PROJECT_ID')
+```
+> NOTE: The project ID specified in the `project_id` parameter refers to a project which the authenticated user has permissions over.
+
+See [`example/query-bq-pandas.py`](example/query-bq-pandas.py)

@@ -1,8 +1,10 @@
 {
-  "user": "jose",
-  "pass": "naranjo",
-  "host": "xxx.xxx.xxx.xxx",
-  "db": "postgres",
-  "csv": "data",
-  "table": "iris"
+        "user": "jose",
+        "pass": "naranjo",
+        "host": "192.168.1.1",
+          "db": "postgres",
+         "csv": "data",
+       "table": "iris",
+  "project_id": "some-project-id",
+     "dataset": "data-science"
 }
