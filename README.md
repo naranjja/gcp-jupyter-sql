@@ -294,7 +294,7 @@ gsutil mb gs://[BUCKET_NAME]/
 #### Uploading CSV to Cloud Storage
 Navigate to the folder that contains the CSV file, and execute the following command (where `BUCKET_NAME` refers to the name of the bucket which will receive the file):
 ```
-gsutil cp [CSV_FILE_NAME] gs://[BUCKET_NAME]/
+gsutil -o GSUtil:parallel_composite_upload_threshold=150M cp [CSV_FILE_NAME] gs://[BUCKET_NAME]/
 ```
 
 #### Loading CSV from Cloud Storage to BigQuery
